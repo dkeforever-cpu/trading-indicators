@@ -91,9 +91,8 @@ vwapUpper = sessionVWAP + vwapStdDev * vwapBandMult
 vwapLower = sessionVWAP - vwapStdDev * vwapBandMult
 
 plot(showVWAP ? sessionVWAP : na, "Session VWAP", color=color.new(color.yellow, 0), linewidth=2, force_overlay=true)
-vwapUpperPlot = plot(showVWAP and showVWAPBands ? vwapUpper : na, "VWAP Upper Band", color=color.new(color.yellow, 60), style=plot.style_circles, force_overlay=true)
-vwapLowerPlot = plot(showVWAP and showVWAPBands ? vwapLower : na, "VWAP Lower Band", color=color.new(color.yellow, 60), style=plot.style_circles, force_overlay=true)
-fill(vwapUpperPlot, vwapLowerPlot, color=color.new(color.yellow, 92), title="VWAP Band Fill", force_overlay=true)
+plot(showVWAP and showVWAPBands ? vwapUpper : na, "VWAP Upper Band", color=color.new(color.yellow, 60), style=plot.style_circles, force_overlay=true)
+plot(showVWAP and showVWAPBands ? vwapLower : na, "VWAP Lower Band", color=color.new(color.yellow, 60), style=plot.style_circles, force_overlay=true)
 
 // ================= MARKET STRUCTURE (BOS / CHoCH) =================
 ph = ta.pivothigh(high, swingLen, swingLen)

@@ -1,0 +1,58 @@
+//@version=5
+indicator("Custom Oscillator Confluence + Divergence (10m)", shorttitle="CustomOsc", overlay=false)
+
+grpOsc = "Oscillator"
+rsiLen = input.int(14, "RSI Length", group=grpOsc)
+stochLen = input.int(14, "Stochastic Length", group=grpOsc)
+cciLen = input.int(20, "CCI Length", group=grpOsc)
+
+grpDiv = "Divergence"
+showDiv = input.bool(true, "Show Divergence Labels", group=grpDiv)
+pivotLen = input.int(5, "Pivot Lookback", group=grpDiv)
+
+rsiVal = ta.rsi(close, rsiLen)
+stochK = ta.sma(ta.stoch(close, high, low, stochLen), 3)
+cciVal = ta.cci(close, cciLen)
+cciNorm = math.max(0, math.min(100, 50 + cciVal / 4))
+
+confluence = (rsiVal + stochK + cciNorm) / 3
+
+plot(confluence, "Confluence Oscillator", color=color.new(color.blue, 0), linewidth=2)
+plot(rsiVal, "RSI", color=color.new(color.purple, 60))
+plot(stochK, "Stochastic %K", color=color.new(color.orange, 60))
+plot(cciNorm, "CCI (normalized)", color=color.new(color.teal, 60))
+
+hline(80, "Overbought", color=color.new(color.red, 50))
+hline(20, "Oversold", color=color.new(color.lime, 50))
+hline(50, "Midline", color=color.new(color.gray, 70))
+
+// ============ DIVERGENCE ============
+ph = ta.pivothigh(rsiVal, pivotLen, pivotLen)
+pl = ta.pivotlow(rsiVal, pivotLen, pivotLen)
+
+var float lastPH = na
+var float lastPHPrice = na
+var float lastPL = na
+var float lastPLPrice = na
+
+bullDiv = false
+bearDiv = false
+
+if not na(pl)
+    priceLow = low[pivotLen]
+    if showDiv and not na(lastPL) and pl > lastPL and priceLow < lastPLPrice
+        bullDiv := true
+        label.new(bar_index[pivotLen], pl, "Bull Div", style=label.style_label_up, color=color.new(color.lime, 0), textcolor=color.black, size=size.tiny)
+    lastPL := pl
+    lastPLPrice := priceLow
+
+if not na(ph)
+    priceHigh = high[pivotLen]
+    if showDiv and not na(lastPH) and ph < lastPH and priceHigh > lastPHPrice
+        bearDiv := true
+        label.new(bar_index[pivotLen], ph, "Bear Div", style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white, size=size.tiny)
+    lastPH := ph
+    lastPHPrice := priceHigh
+
+alertcondition(bullDiv, title="Bullish Divergence", message="Bullish RSI divergence on {{ticker}} {{interval}}")
+alertcondition(bearDiv, title="Bearish Divergence", message="Bearish RSI divergence on {{ticker}} {{interval}}")

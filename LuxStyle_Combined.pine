@@ -1,0 +1,262 @@
+//@version=5
+indicator("Custom SMC + Oscillator Confluence", shorttitle="SMC+Osc", overlay=false, max_boxes_count=50, max_lines_count=50, max_labels_count=300)
+
+// ================= INPUTS =================
+grpTrend = "Trend Filter"
+emaLen = input.int(50, "Trend EMA Length", group=grpTrend)
+useHtfFilter = input.bool(true, "Use Higher Timeframe Trend Filter", group=grpTrend)
+htfTF = input.timeframe("60", "Higher Timeframe", group=grpTrend)
+
+grpSwing = "Market Structure (SMC)"
+swingLen = input.int(5, "Swing Pivot Length", group=grpSwing)
+showStructure = input.bool(true, "Show BOS / CHoCH Labels", group=grpSwing)
+
+grpOB = "Order Blocks"
+showOB = input.bool(true, "Show Order Blocks", group=grpOB)
+atrLen = input.int(14, "ATR Length", group=grpOB)
+obImpulseMult = input.float(1.5, "Impulse Strength (x ATR)", step=0.1, group=grpOB)
+maxOB = input.int(3, "Max Order Blocks per Side", group=grpOB)
+obExtendBars = input.int(25, "Order Block Extend (bars)", group=grpOB)
+
+grpLiq = "Liquidity Zones"
+showLiq = input.bool(true, "Show Equal High/Low Liquidity", group=grpLiq)
+liqTolerancePct = input.float(0.05, "Equal H/L Tolerance %", step=0.01, group=grpLiq)
+
+grpVWAP = "Anchored VWAP (Session)"
+showVWAP = input.bool(true, "Show Session Anchored VWAP", group=grpVWAP)
+showVWAPBands = input.bool(true, "Show VWAP StdDev Bands", group=grpVWAP)
+vwapBandMult = input.float(1.0, "Band Multiplier", step=0.1, group=grpVWAP)
+
+grpOsc = "Oscillator"
+rsiLen = input.int(14, "RSI Length", group=grpOsc)
+stochLen = input.int(14, "Stochastic Length", group=grpOsc)
+cciLen = input.int(20, "CCI Length", group=grpOsc)
+
+grpSig = "Signal (Oscillator Confluence)"
+showSignals = input.bool(true, "Show Buy/Sell Signals", group=grpSig)
+rsiOB = input.int(70, "RSI Overbought", group=grpSig)
+rsiOS = input.int(30, "RSI Oversold", group=grpSig)
+minScore = input.int(2, "Min Confluence Score (of 3)", minval=1, maxval=3, group=grpSig)
+requireTrendAlign = input.bool(true, "Require Signal to Align with Trend", group=grpSig)
+requireVWAPAlign = input.bool(false, "Require Signal to Align with Session VWAP", group=grpSig)
+
+grpDiv = "Divergence"
+showDiv = input.bool(true, "Show Divergence Labels", group=grpDiv)
+pivotLen = input.int(5, "RSI Pivot Lookback", group=grpDiv)
+
+// ================= OSCILLATOR (shared by plot, signal, and divergence) =================
+rsiVal = ta.rsi(close, rsiLen)
+stochK = ta.sma(ta.stoch(close, high, low, stochLen), 3)
+cciVal = ta.cci(close, cciLen)
+cciNorm = math.max(0, math.min(100, 50 + cciVal / 4))
+confluence = (rsiVal + stochK + cciNorm) / 3
+
+// ================= TREND FILTER =================
+emaVal = ta.ema(close, emaLen)
+trendUpLocal = close > emaVal
+trendDownLocal = close < emaVal
+
+htfClose = request.security(syminfo.tickerid, htfTF, close, lookahead=barmerge.lookahead_off)
+htfEma = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaLen), lookahead=barmerge.lookahead_off)
+htfTrendUp = htfClose > htfEma
+htfTrendDown = htfClose < htfEma
+
+trendUp = useHtfFilter ? (trendUpLocal and htfTrendUp) : trendUpLocal
+trendDown = useHtfFilter ? (trendDownLocal and htfTrendDown) : trendDownLocal
+
+plot(emaVal, "Trend EMA", color = trendUp ? color.lime : trendDown ? color.red : color.gray, linewidth=2, force_overlay=true)
+
+// ================= ANCHORED VWAP (SESSION START) =================
+var float vwapCumPV = 0.0
+var float vwapCumVol = 0.0
+var float vwapCumPV2 = 0.0
+
+newSession = ta.change(time("D")) != 0
+
+if newSession
+    vwapCumPV := 0.0
+    vwapCumVol := 0.0
+    vwapCumPV2 := 0.0
+
+typicalPrice = hlc3
+vwapCumPV := vwapCumPV + typicalPrice * volume
+vwapCumVol := vwapCumVol + volume
+vwapCumPV2 := vwapCumPV2 + typicalPrice * typicalPrice * volume
+
+sessionVWAP = vwapCumVol > 0 ? vwapCumPV / vwapCumVol : na
+vwapVariance = vwapCumVol > 0 ? (vwapCumPV2 / vwapCumVol) - sessionVWAP * sessionVWAP : na
+vwapStdDev = vwapVariance > 0 ? math.sqrt(vwapVariance) : 0.0
+
+vwapUpper = sessionVWAP + vwapStdDev * vwapBandMult
+vwapLower = sessionVWAP - vwapStdDev * vwapBandMult
+
+plot(showVWAP ? sessionVWAP : na, "Session VWAP", color=color.new(color.yellow, 0), linewidth=2, force_overlay=true)
+vwapUpperPlot = plot(showVWAP and showVWAPBands ? vwapUpper : na, "VWAP Upper Band", color=color.new(color.yellow, 60), style=plot.style_circles, force_overlay=true)
+vwapLowerPlot = plot(showVWAP and showVWAPBands ? vwapLower : na, "VWAP Lower Band", color=color.new(color.yellow, 60), style=plot.style_circles, force_overlay=true)
+fill(vwapUpperPlot, vwapLowerPlot, color=color.new(color.yellow, 92), title="VWAP Band Fill", force_overlay=true)
+
+// ================= MARKET STRUCTURE (BOS / CHoCH) =================
+ph = ta.pivothigh(high, swingLen, swingLen)
+pl = ta.pivotlow(low, swingLen, swingLen)
+
+var float lastSwingHigh = na
+var float lastSwingLow = na
+var int structTrend = 0
+
+bullBreak = not na(lastSwingHigh) and ta.crossover(close, lastSwingHigh)
+bearBreak = not na(lastSwingLow) and ta.crossunder(close, lastSwingLow)
+
+if not na(ph)
+    lastSwingHigh := ph
+if not na(pl)
+    lastSwingLow := pl
+
+if bullBreak
+    tag = structTrend <= 0 ? "CHoCH+" : "BOS+"
+    if showStructure
+        label.new(bar_index, low, tag, style=label.style_label_up, color=color.new(color.lime, 20), textcolor=color.black, size=size.small, force_overlay=true)
+    structTrend := 1
+    lastSwingHigh := na
+
+if bearBreak
+    tag2 = structTrend >= 0 ? "CHoCH-" : "BOS-"
+    if showStructure
+        label.new(bar_index, high, tag2, style=label.style_label_down, color=color.new(color.red, 20), textcolor=color.white, size=size.small, force_overlay=true)
+    structTrend := -1
+    lastSwingLow := na
+
+// ================= ORDER BLOCKS =================
+atrVal = ta.atr(atrLen)
+bullImpulse = (close - open) > atrVal * obImpulseMult
+bearImpulse = (open - close) > atrVal * obImpulseMult
+
+var box[] bullBoxes = array.new_box()
+var box[] bearBoxes = array.new_box()
+
+if showOB and bullImpulse and close[1] < open[1]
+    newBox = box.new(bar_index[1], open[1], bar_index + obExtendBars, low[1], border_color=color.new(color.lime, 0), bgcolor=color.new(color.lime, 85), border_width=1, force_overlay=true)
+    array.push(bullBoxes, newBox)
+    if array.size(bullBoxes) > maxOB
+        box.delete(array.shift(bullBoxes))
+
+if showOB and bearImpulse and close[1] > open[1]
+    newBox2 = box.new(bar_index[1], high[1], bar_index + obExtendBars, open[1], border_color=color.new(color.red, 0), bgcolor=color.new(color.red, 85), border_width=1, force_overlay=true)
+    array.push(bearBoxes, newBox2)
+    if array.size(bearBoxes) > maxOB
+        box.delete(array.shift(bearBoxes))
+
+if array.size(bullBoxes) > 0
+    for i = array.size(bullBoxes) - 1 to 0
+        b = array.get(bullBoxes, i)
+        if close < box.get_bottom(b)
+            box.delete(b)
+            array.remove(bullBoxes, i)
+
+if array.size(bearBoxes) > 0
+    for i = array.size(bearBoxes) - 1 to 0
+        b = array.get(bearBoxes, i)
+        if close > box.get_top(b)
+            box.delete(b)
+            array.remove(bearBoxes, i)
+
+// ================= LIQUIDITY ZONES (Equal Highs/Lows) =================
+var float[] pivotHighs = array.new_float()
+var int[] pivotHighBars = array.new_int()
+var float[] pivotLows = array.new_float()
+var int[] pivotLowBars = array.new_int()
+
+if not na(ph)
+    array.push(pivotHighs, ph)
+    array.push(pivotHighBars, bar_index - swingLen)
+    if array.size(pivotHighs) > 20
+        array.shift(pivotHighs)
+        array.shift(pivotHighBars)
+
+if not na(pl)
+    array.push(pivotLows, pl)
+    array.push(pivotLowBars, bar_index - swingLen)
+    if array.size(pivotLows) > 20
+        array.shift(pivotLows)
+        array.shift(pivotLowBars)
+
+if showLiq and not na(ph) and array.size(pivotHighs) >= 2
+    curH = ph
+    curBar = bar_index - swingLen
+    for i = array.size(pivotHighs) - 2 to 0
+        prevH = array.get(pivotHighs, i)
+        if math.abs(curH - prevH) / prevH * 100 <= liqTolerancePct
+            prevBar = array.get(pivotHighBars, i)
+            line.new(prevBar, prevH, curBar, curH, color=color.new(color.orange, 0), width=1, style=line.style_dashed, force_overlay=true)
+            label.new(curBar, curH, "EQH", style=label.style_label_down, color=color.new(color.orange, 30), textcolor=color.black, size=size.tiny, force_overlay=true)
+            break
+
+if showLiq and not na(pl) and array.size(pivotLows) >= 2
+    curL = pl
+    curBarL = bar_index - swingLen
+    for i = array.size(pivotLows) - 2 to 0
+        prevL = array.get(pivotLows, i)
+        if math.abs(curL - prevL) / prevL * 100 <= liqTolerancePct
+            prevBarL = array.get(pivotLowBars, i)
+            line.new(prevBarL, prevL, curBarL, curL, color=color.new(color.blue, 0), width=1, style=line.style_dashed, force_overlay=true)
+            label.new(curBarL, curL, "EQL", style=label.style_label_up, color=color.new(color.blue, 30), textcolor=color.white, size=size.tiny, force_overlay=true)
+            break
+
+// ================= BUY/SELL SIGNAL (Oscillator Confluence) =================
+oversoldScore = (rsiVal < rsiOS ? 1 : 0) + (stochK < 20 ? 1 : 0) + (cciNorm < 20 ? 1 : 0)
+overboughtScore = (rsiVal > rsiOB ? 1 : 0) + (stochK > 80 ? 1 : 0) + (cciNorm > 80 ? 1 : 0)
+
+turningUp = rsiVal > rsiVal[1]
+turningDown = rsiVal < rsiVal[1]
+
+vwapAlignUp = not na(sessionVWAP) and close > sessionVWAP
+vwapAlignDown = not na(sessionVWAP) and close < sessionVWAP
+
+buySignal = showSignals and oversoldScore >= minScore and turningUp and (not requireTrendAlign or trendUp) and (not requireVWAPAlign or vwapAlignUp)
+sellSignal = showSignals and overboughtScore >= minScore and turningDown and (not requireTrendAlign or trendDown) and (not requireVWAPAlign or vwapAlignDown)
+
+plotshape(buySignal, title="Buy Signal", style=shape.triangleup, location=location.belowbar, color=color.new(color.lime, 0), size=size.small, force_overlay=true)
+plotshape(sellSignal, title="Sell Signal", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0), size=size.small, force_overlay=true)
+
+// ================= OSCILLATOR PLOTS (lower pane) =================
+plot(confluence, "Confluence Oscillator", color=color.new(color.blue, 0), linewidth=2)
+plot(rsiVal, "RSI", color=color.new(color.purple, 60))
+plot(stochK, "Stochastic %K", color=color.new(color.orange, 60))
+plot(cciNorm, "CCI (normalized)", color=color.new(color.teal, 60))
+
+hline(80, "Overbought", color=color.new(color.red, 50))
+hline(20, "Oversold", color=color.new(color.lime, 50))
+hline(50, "Midline", color=color.new(color.gray, 70))
+
+// ================= DIVERGENCE (lower pane) =================
+divPH = ta.pivothigh(rsiVal, pivotLen, pivotLen)
+divPL = ta.pivotlow(rsiVal, pivotLen, pivotLen)
+
+var float lastDivPH = na
+var float lastDivPHPrice = na
+var float lastDivPL = na
+var float lastDivPLPrice = na
+
+bullDiv = false
+bearDiv = false
+
+if not na(divPL)
+    priceLow = low[pivotLen]
+    if showDiv and not na(lastDivPL) and divPL > lastDivPL and priceLow < lastDivPLPrice
+        bullDiv := true
+        label.new(bar_index[pivotLen], divPL, "Bull Div", style=label.style_label_up, color=color.new(color.lime, 0), textcolor=color.black, size=size.tiny)
+    lastDivPL := divPL
+    lastDivPLPrice := priceLow
+
+if not na(divPH)
+    priceHigh = high[pivotLen]
+    if showDiv and not na(lastDivPH) and divPH < lastDivPH and priceHigh > lastDivPHPrice
+        bearDiv := true
+        label.new(bar_index[pivotLen], divPH, "Bear Div", style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white, size=size.tiny)
+    lastDivPH := divPH
+    lastDivPHPrice := priceHigh
+
+// ================= ALERTS =================
+alertcondition(buySignal, title="Buy Signal", message="Custom SMC Buy Signal on {{ticker}} {{interval}}")
+alertcondition(sellSignal, title="Sell Signal", message="Custom SMC Sell Signal on {{ticker}} {{interval}}")
+alertcondition(bullDiv, title="Bullish Divergence", message="Bullish RSI divergence on {{ticker}} {{interval}}")
+alertcondition(bearDiv, title="Bearish Divergence", message="Bearish RSI divergence on {{ticker}} {{interval}}")

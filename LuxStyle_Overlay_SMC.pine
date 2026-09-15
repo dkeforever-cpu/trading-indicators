@@ -90,13 +90,13 @@ var float lastSwingHigh = na
 var float lastSwingLow = na
 var int structTrend = 0
 
+bullBreak = not na(lastSwingHigh) and ta.crossover(close, lastSwingHigh)
+bearBreak = not na(lastSwingLow) and ta.crossunder(close, lastSwingLow)
+
 if not na(ph)
     lastSwingHigh := ph
 if not na(pl)
     lastSwingLow := pl
-
-bullBreak = not na(lastSwingHigh) and ta.crossover(close, lastSwingHigh)
-bearBreak = not na(lastSwingLow) and ta.crossunder(close, lastSwingLow)
 
 if bullBreak
     tag = structTrend <= 0 ? "CHoCH+" : "BOS+"
@@ -135,20 +135,16 @@ if showOB and bearImpulse and close[1] > open[1]
 if array.size(bullBoxes) > 0
     for i = array.size(bullBoxes) - 1 to 0
         b = array.get(bullBoxes, i)
-        if close < box.get_top(b)
+        if close < box.get_bottom(b)
             box.delete(b)
             array.remove(bullBoxes, i)
-        else
-            box.set_right(b, bar_index + obExtendBars)
 
 if array.size(bearBoxes) > 0
     for i = array.size(bearBoxes) - 1 to 0
         b = array.get(bearBoxes, i)
-        if close > box.get_bottom(b)
+        if close > box.get_top(b)
             box.delete(b)
             array.remove(bearBoxes, i)
-        else
-            box.set_right(b, bar_index + obExtendBars)
 
 // ================= LIQUIDITY ZONES (Equal Highs/Lows) =================
 var float[] pivotHighs = array.new_float()
